@@ -1,0 +1,240 @@
+---
+title: "Clean data with R_Audible dataset"
+author: "Pradip Shrestha"
+date: "9/26/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+install.packages("devtools")
+devtools::install_github('smin95/smplot')
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(smplot)
+```
+
+```{r}
+setwd("C:\\Users\\mepra\\OneDrive\\Documents\\R\\Data Cleaning_Audible")
+
+# loading the dataset
+data <- read.csv('audible_uncleaned.csv')
+glimpse(data)
+
+#head(data)
+```
+
+
+```{r}
+n_distinct(data) # identify duplicated rows
+# as the output number matches the total row number, we conclude that there is no duplicate rows
+```
+```{r}
+data %>% 
+  distinct(name, author)
+```
+
+##########################################
+######### CLEANING DATA ##################
+##########################################
+
+```{r}
+# remove writtenby and narratedby in the author and narrator column and separate the first from last name by a blank
+data$author <-gsub("Writtenby:","", as.character(data$author))
+data$narrator <-gsub("Narratedby:","", as.character(data$narrator))
+```
+
+```{r}
+# look for all uppercase letter in string and substitute with group of letters each time it finds an uppercase one, than substitutes the uppercase with blank space and the first letter of the group
+
+data$author <- gsub('([[:upper:]])', ' \\1', as.character(data$author)) %>%
+  str_trim()
+data$narrator  <- gsub('([[:upper:]])', ' \\1', as.character(data$narrator ))%>%
+  str_trim()
+
+# str_trim removes leading blank space
+head(data)
+```
+```{r}
+# remove duplicate rows for name and author column
+data<-distinct(data,name,author,.keep_all = TRUE)
+head(data)
+dim(data)
+```
+
+```{r}
+# standardize time column
+unique(nchar(data$time, type = "chars", allowNA=FALSE)) #identify the length of each type of value
+```
+```{r}
+# create function to change the format into a numeric value in minutes
+clean_time <- function(value){
+  if(value=="Less than 1 minute"){
+    return(as.numeric(1))
+  }
+  else{
+    if (nchar(value)>7){
+      # separate hrs from minutes
+      hrs <- str_trim(unlist(strsplit(value, split = "and"))[1])
+      mins <- str_trim(unlist(strsplit(value, split = "and"))[2])   
+      
+      # leave only the numeric value of each variable and multiplying the hour per 60 minutes
+      hrs <- as.numeric(gsub(".*?([0-9]+).*", "\\1", hrs)) *60
+      mins <- as.numeric(gsub(".*?([0-9]+).*", "\\1", mins))
+      
+      # returning the sum of hours in minutes plus the original minutes
+      return(mins + hrs)
+    }
+    else {
+      if (grepl("h", value, fixed = TRUE)){
+        hrs <- as.numeric(gsub(".*?([0-9]+).*", "\\1", value)) *60
+        return(hrs)
+      }
+      else{
+        mins <- as.numeric(gsub(".*?([0-9]+).*", "\\1", value))
+        return(mins)
+      }}}}
+```
+
+```{r}
+# apply the funciton to data time column
+data$time<-lapply(data$time, clean_time)
+
+# convert column in integer
+data$time<- as.integer(unlist(data$time))
+
+# rename column to minutes
+data<-data %>% 
+  rename(duration_mins=time)
+
+head(data)
+```
+```{r}
+# convert releasedate column into date type
+data$releasedate <- as.Date(data$releasedate, "%d-%m-%y")
+head(data)
+```
+
+```{r}
+# get the unique lengths of the column values
+unique(nchar(data$stars, type = "chars", allowNA = FALSE))
+
+# get the unique values for the stars column
+head(data$stars %>%
+  unique())
+```
+
+```{r}
+# creating a function to just keep the values in the stars column
+clean_stars <- function(value){
+  if(value=="Not rated yet"){
+    return("-1 -1")
+  }
+  else{
+    # substitute the ratings word with an empty string
+    value <- gsub(" ratings", "", value)
+    # substitute the our of 5 starts sentence with an empy string
+    value <- gsub(" out of 5 stars"," ",value)
+    value <- gsub(",","",value)
+    return(value)
+      
+    }
+  }
+```
+
+```{r}
+data$stars <- lapply(data$stars, clean_stars) #apply the function to the stars column
+data <- data %>% separate(stars, c('stars', 'number_ratings'), sep=" ", convert=TRUE, extra="drop") #separate column into two
+
+head(data)
+```
+
+```{r}
+# convert the price column into numeric type
+data$price[data$price == "Free"] <- 0 # changing the Free value to a 0
+
+remove_comas <- function(value){  # removing commas for some values
+  value <- gsub(",","", value)
+  return(value)
+}
+data$price <- lapply(data$price, remove_comas) #apply the function
+
+# changing the column type to a numeric one
+data$price <- as.double(data$price)
+head(data$price)
+class(data$price)
+```
+```{r}
+# export as .csv
+write.csv(data,"audible_cleaned.csv", row.names = TRUE)
+```
+
+##########################################
+######### VISUALIZE DATA ##################
+##########################################
+
+```{r}
+# loading the dataset
+df <- read.csv('audible_cleaned.csv')
+glimpse(df)
+```
+
+```{r}
+# drop null values
+clean_df <- df %>%
+  filter(stars >-1 ,number_ratings >-1 )
+```
+
+
+```{r}
+# Correlation between the duration of a book and its ratings or stars?
+clean_df %>%
+  ggplot(aes(duration_mins,number_ratings)) +
+  geom_point(alpha=0.3)+
+  labs(title="Duration of books vs number of ratings") + sm_corr_theme() + 
+  sm_statCorr(label_x = 6000,label_y = 9000)
+```
+
+```{r}
+# Top books with better stars
+top_10 <-df %>%
+  arrange(-stars,-number_ratings) %>%
+  head(10)
+
+top_10 %>%
+  ggplot(aes(reorder(stringr::str_wrap(name,10),-number_ratings),number_ratings))+
+  geom_bar(stat='identity')+
+  labs(title="Top 10 books with more reviews and 5 stars of ratings")+
+  geom_text(aes(label=number_ratings), vjust=1.6, color="white", size=3)+
+  theme(axis.title.x = element_blank())
+```
+```{r}
+# Percent of language used 
+top_languages <- df %>%
+  count(language)%>%
+  arrange(-n) %>%
+  head(10)
+
+
+top_languages  %>%
+  arrange(n) %>%
+  mutate(Country=factor(language, language)) %>%
+  ggplot( aes(reorder(language,-n), y=n) ) +
+  geom_segment( aes(x=reorder(language,n) ,xend=language, y=0, yend=n), color="grey") +
+  geom_point(size=3, color="#69b3a2") +
+  coord_flip() +
+  theme(
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position="none"
+  ) +
+  xlab("")+  
+  labs(title="Top 10 languages more used in audiobooks from Audible")
+```
