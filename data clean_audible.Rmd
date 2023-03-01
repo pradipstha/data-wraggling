@@ -40,10 +40,7 @@ n_distinct(data) # identify duplicated rows
 data %>% 
   distinct(name, author)
 ```
-
-##########################################
 ######### CLEANING DATA ##################
-##########################################
 
 ```{r}
 # remove writtenby and narratedby in the author and narrator column and separate the first from last name by a blank
@@ -176,9 +173,7 @@ class(data$price)
 write.csv(data,"audible_cleaned.csv", row.names = TRUE)
 ```
 
-##########################################
 ######### VISUALIZE DATA ##################
-##########################################
 
 ```{r}
 # loading the dataset
